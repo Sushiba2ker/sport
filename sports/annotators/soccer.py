@@ -1,11 +1,9 @@
 from typing import Optional, List, Tuple
-
 import cv2
 import supervision as sv
 import numpy as np
 from scipy import stats
 import matplotlib.pyplot as plt
-
 from sports.configs.soccer import SoccerPitchConfiguration
 
 
@@ -315,23 +313,32 @@ class HeatmapGenerator:
     def __init__(
         self, 
         config: SoccerPitchConfiguration,
-        resolution: Tuple[int, int] = (800, 500),
+        padding: int = 50,
+        scale: float = 0.1,
         sigma: float = 25.0,
         opacity: float = 0.7
     ):
         self.config = config
-        self.resolution = resolution
+        self.padding = padding
+        self.scale = scale
         self.sigma = sigma
         self.opacity = opacity
         
+        # Tính toán kích thước scaled
+        self.scaled_width = int(config.width * scale)
+        self.scaled_length = int(config.length * scale)
+        
         # Tạo grid points cho heatmap
-        y, x = np.mgrid[0:resolution[1]:1, 0:resolution[0]:1]
+        y, x = np.mgrid[0:self.scaled_width + 2*padding:1, 
+                       0:self.scaled_length + 2*padding:1]
         self.positions = np.vstack([x.ravel(), y.ravel()])
         
     def generate(
         self,
         points: np.ndarray,
-        colormap: str = 'hot'
+        colormap: str = 'hot',
+        background_color: sv.Color = sv.Color.BLACK,
+        line_color: sv.Color = sv.Color.WHITE
     ) -> np.ndarray:
         """
         Tạo heatmap từ các điểm trên sân
@@ -339,6 +346,8 @@ class HeatmapGenerator:
         Args:
             points: Mảng các điểm (x, y) trên sân
             colormap: Tên colormap từ matplotlib
+            background_color: Màu nền sân
+            line_color: Màu đường kẻ sân
             
         Returns:
             np.ndarray: Hình ảnh heatmap
@@ -346,33 +355,42 @@ class HeatmapGenerator:
         # Tạo pitch trống
         pitch = draw_pitch(
             config=self.config,
-            resolution_wh=self.resolution,
-            background_color=sv.Color.BLACK
+            background_color=background_color,
+            line_color=line_color,
+            padding=self.padding,
+            scale=self.scale
         )
         
         if len(points) == 0:
             return pitch
             
+        # Scale points
+        scaled_points = points * self.scale + self.padding
+            
         # Tính kernel density estimation
-        kernel = stats.gaussian_kde(
-            points.T,
-            bw_method=self.sigma
-        )
-        
-        # Tính density
-        z = kernel(self.positions)
-        z = z.reshape(self.resolution[1], self.resolution[0])
-        
-        # Normalize và áp dụng colormap
-        z = (z - z.min()) / (z.max() - z.min())
-        colormap = plt.get_cmap(colormap)
-        heatmap = (colormap(z)[:, :, :3] * 255).astype(np.uint8)
-        
-        # Blend với pitch
-        return cv2.addWeighted(
-            heatmap, 
-            self.opacity,
-            pitch,
-            1 - self.opacity,
-            0
-        )
+        try:
+            kernel = stats.gaussian_kde(
+                scaled_points.T,
+                bw_method=self.sigma
+            )
+            
+            # Tính density
+            z = kernel(self.positions)
+            z = z.reshape(self.scaled_width + 2*self.padding, 
+                        self.scaled_length + 2*self.padding)
+            
+            # Normalize và áp dụng colormap
+            z = (z - z.min()) / (z.max() - z.min() + 1e-10)
+            cmap = plt.get_cmap(colormap)
+            heatmap = (cmap(z)[:, :, :3] * 255).astype(np.uint8)
+            
+            # Blend với pitch
+            return cv2.addWeighted(
+                heatmap, 
+                self.opacity,
+                pitch,
+                1 - self.opacity,
+                0
+            )
+        except (ValueError, np.linalg.LinAlgError):
+            return pitch

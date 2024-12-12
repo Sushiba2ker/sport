@@ -11,7 +11,7 @@ setuptools.setup(
     name="sports",
     version='0.1.0',
     python_requires=">=3.8",
-    description="",
+    description="Sports analytics tools",
     long_description=README,
     long_description_content_type="text/markdown",
     url="https://github.com/roboflow/sports",
@@ -29,7 +29,9 @@ setuptools.setup(
         "scikit-learn",
         "tqdm",
         "sentencepiece",
-        "protobuf"
+        "protobuf",
+        "scipy>=1.7.0",
+        "matplotlib>=3.4.0"
     ],
     extras_require={
         'tests': [
